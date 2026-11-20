@@ -54,38 +54,51 @@ async function findIds(){
     const html = await res.text();
     
     let ids = [];
-
-    // নিশ্চিত পদ্ধতি: FB_PUBLIC_LOAD_DATA_ থেকে ডেটা কাটা
-    const match = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/);
     
-    if(match && match[1]){
-      try {
-        const data = JSON.parse(match[1]);
-        // সম্পূর্ণ ডেটা ট্রি-তে গভীরে গিয়ে খোঁজা
-        function findEntries(obj) {
-            for (let key in obj) {
-                if (typeof obj[key] === 'string' && obj[key].startsWith('entry.')) {
-                    ids.push(obj[key]);
-                } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                    findEntries(obj[key]);
-                }
+    // গুগল ফর্মের ডেটা খোঁজার সবচেয়ে নিশ্চিত উপায়
+    const startStr = 'var FB_PUBLIC_LOAD_DATA_ = ';
+    const startIndex = html.indexOf(startStr);
+    
+    if (startIndex !== -1) {
+      const jsonStart = startIndex + startStr.length;
+      const jsonEnd = html.indexOf(';</script>', jsonStart);
+      
+      if (jsonEnd !== -1) {
+        const jsonStr = html.substring(jsonStart, jsonEnd);
+        try {
+          const data = JSON.parse(jsonStr);
+          
+          // ফাংশন যা গভীরে গিয়ে entry. খুঁজে বের করবে
+          const extract = (obj) => {
+            if (Array.isArray(obj)) {
+              obj.forEach(extract);
+            } else if (typeof obj === 'string') {
+              if (obj.startsWith('entry.')) {
+                ids.push(obj);
+              }
+            } else if (obj !== null && typeof obj === 'object') {
+              Object.values(obj).forEach(extract);
             }
+          };
+          
+          extract(data);
+        } catch(e) {
+          console.log("JSON parse error:", e);
         }
-        findEntries(data);
-      } catch(e){ console.log("JSON Parse Error"); }
+      }
     }
 
-    // ব্যাকআপ পদ্ধতি: যদি উপরের পদ্ধতি ফেইল করে, রেগুলার এক্সপ্রেশন দিয়ে খোঁজা
+    // যদি উপরের পদ্ধতি ফেইল করে, তবে সোজা HTML থেকে খোঁজা
     if(ids.length === 0){
       let rawIds = html.match(/entry\.\d+/g) || [];
       ids = rawIds;
     }
 
-    // ডুপ্লিকেট রিমুভ করা
+    // ডুপ্লিকেট আইডি বাদ দেওয়া
     ids = [...new Set(ids)];
 
     if(ids.length === 0){
-      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করো।</div>";
+      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা অথবা লিংকটি সঠিক কিনা চেক করুন।</div>";
       loader.style.display = 'none';
       status.innerText = '';
       return;
