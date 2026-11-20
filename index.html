@@ -12,12 +12,13 @@ p.sub{text-align:center;color:#555}
 input{width:100%;padding:14px;border:1px solid #ccc;border-radius:10px;font-size:15px}
 button{padding:13px;width:100%;background:#673ab7;color:#fff;border:0;border-radius:10px;font-size:16px;margin-top:10px;cursor:pointer}
 .card{background:#fff;padding:14px;margin-top:12px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
-.q{font-weight:bold;font-size:16px}
+.q{font-weight:bold;font-size:16px;margin-bottom:4px}
 .id{color:#673ab7;margin:6px 0;word-break:break-all;font-size:14px}
-.small{padding:8px 12px;width:auto;background:#eee;color:#000;font-size:13px;margin-top:5px}
+.small{padding:8px 12px;width:auto;background:#eee;color:#000;font-size:13px;margin-top:5px;border-radius:6px;border:none;cursor:pointer;display:inline-block}
 .prefill{width:100%;padding:10px;margin-top:10px}
-#loader{display:none;text-align:center;margin-top:15px}
-#status{font-size:12px;color:#888;text-align:center;margin-top:8px}
+#loader{display:none;text-align:center;margin-top:15px;font-weight:bold}
+#status{font-size:13px;color:#888;text-align:center;margin-top:8px}
+a{color:#673ab7;text-decoration:none;word-break:break-all}
 </style>
 </head>
 <body>
@@ -32,107 +33,152 @@ button{padding:13px;width:100%;background:#673ab7;color:#fff;border:0;border-rad
 <div id="result"></div>
 
 <script>
-async function fetchWithProxies(formUrl){
-  const proxies = [
-    "https://api.allorigins.win/raw?url=",
-    "https://api.allorigins.win/get?url=",
-    "https://api.codetabs.com/v1/proxy?quest=",
-    "https://corsproxy.io/?url=",
-    "https://api.cors.lol/?url=",
-    "https://proxy.cors.sh/",
-    "https://cors.isomorphic-git.org/",
-    "https://whateverorigin.org/get?url=",
-    "https://thingproxy.freeboard.io/fetch/",
-    "https://corsproxy.org/?",
-    "https://test.cors.workers.dev/?",
-    "https://proxy.corsfix.com/?"
-  ];
-
-  for(let i=0;i<proxies.length;i++){
-    let p = proxies[i];
-    try{
-      document.getElementById('status').innerText = `Proxy ${i+1}/${proxies.length} ট্রাই করতেছি...`;
-      let controller = new AbortController();
-      let timeout = setTimeout(()=>controller.abort(), 8000);
-      let res = await fetch(p + encodeURIComponent(formUrl), { signal: controller.signal });
-      clearTimeout(timeout);
-      let text = await res.text();
-      if(text.startsWith('{') && text.includes('contents')){
-        try{ text = JSON.parse(text).contents; }catch(e){}
-      }
-      if(text && text.includes('entry.')){
-        document.getElementById('status').innerText = `✅ Proxy ${i+1} দিয়ে পাওয়া গেছে!`;
-        return text;
-      }
-      if(text && text.length > 20000) return text;
-    }catch(e){ continue; }
-  }
-  throw new Error("সব Proxy Fail করছে");
-}
+// আপনার Cloudflare Worker এর লিংক
+const MY_WORKER_URL = "https://my-form-proxy.rokib40560.workers.dev";
 
 async function findIds(){
-  let formUrl = document.getElementById('url').value.trim();
-  let result = document.getElementById('result');
-  let loader = document.getElementById('loader');
-  if(!formUrl.includes('http')){ alert('সঠিক লিংক দাও'); return; }
-  loader.style.display='block';
-  result.innerHTML='';
-  try{
-    let html = await fetchWithProxies(formUrl);
-    let ids = [...new Set(html.match(/entry\.\d+/g) || [])];
-    if(ids.length===0){
-      result.innerHTML = "<div class='card'>❌ পাওয়া যায়নি।<br>1. forms.gle হলে Chrome এ ওপেন করে বড় লিংকটা কপি করো<br>2. Form টা Public কিনা দেখো</div>";
-      loader.style.display='none';
+  const formUrl = document.getElementById('url').value.trim();
+  const result = document.getElementById('result');
+  const loader = document.getElementById('loader');
+  const status = document.getElementById('status');
+
+  if(!formUrl.includes('http')){
+    alert('সঠিক লিংক দাও');
+    return;
+  }
+
+  let cleanUrl = formUrl;
+  if(cleanUrl.includes('forms.gle')){
+    result.innerHTML = "<div class='card'>⚠️ forms.gle শর্ট লিংক কাজ করবে না।<br><br>👉 Chrome এ লিংকটা ওপেন করে পুরো লিংক কপি করে আনো।</div>";
+    return;
+  }
+  
+  if(!cleanUrl.includes('/viewform') && !cleanUrl.includes('/formResponse')){
+    if(cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0,-1);
+    cleanUrl += '/viewform';
+  }
+  cleanUrl = cleanUrl.replace('/formResponse', '/viewform');
+
+  loader.style.display = 'block';
+  status.innerText = "Cloudflare Proxy দিয়ে ডেটা আনা হচ্ছে...";
+  result.innerHTML = '';
+
+  try {
+    const fetchUrl = MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl);
+    const res = await fetch(fetchUrl);
+    
+    if(!res.ok) throw new Error("Worker response failed. Status: " + res.status);
+    
+    const html = await res.text();
+    
+    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);?\s*<\/script>/);
+    let ids = [];
+    
+    if(dataMatch){
+      try {
+        const data = JSON.parse(dataMatch[1]);
+        if(data && data[1]) {
+          data[1].forEach(item => {
+            if(item && item[1] && item[4]){
+              item[4].forEach(subItem => {
+                if(subItem && subItem[0]) {
+                   let entry = subItem[0];
+                   let label = item[1];
+                   ids.push({ id: entry, label: label });
+                }
+              });
+            }
+          });
+        }
+      } catch(e){ console.log("JSON parse error:", e); }
+    }
+
+    if(ids.length === 0){
+      let rawIds = [...new Set(html.match(/entry\.\d+/g) || [])];
+      rawIds.forEach((id, index) => {
+        ids.push({ id: id, label: "প্রশ্ন " + (index + 1) });
+      });
+    }
+
+    if(ids.length === 0){
+      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করো।</div>";
+      loader.style.display = 'none';
+      status.innerText = '';
       return;
     }
-    let baseUrl = formUrl.split('/viewform')[0] + '/viewform';
-    let m = html.match(/https:\/\/docs\.google\.com\/forms\/d\/e\/[^\/"]+\/formResponse/);
-    if(m) baseUrl = m[0].replace('/formResponse','/viewform');
-    let formResponseUrl = baseUrl.replace('/viewform','/formResponse');
-    window._ids = ids;
+
+    const baseUrl = cleanUrl;
+    const formResponseUrl = baseUrl.replace('/viewform', '/formResponse');
+    window._ids = ids.map(x => x.id);
     window._baseUrl = baseUrl;
+
     let out = `
     <div class="card" style="background:#e8e5ff">
       <div class="q">🔗 FormResponse Link</div>
       <div class="id">${formResponseUrl}</div>
-      <button class="small" style="background:#673ab7;color:#fff" onclick="navigator.clipboard.writeText('${formResponseUrl}');this.innerText='Copied ✅'">Copy FormResponse</button>
+      <button class="small" style="background:#673ab7;color:#fff" onclick="copyText('${formResponseUrl}', this)">Copy</button>
     </div>
     <div class="card" style="background:#e8e5ff">
       <div class="q">👁️ ViewForm Link</div>
       <div class="id">${baseUrl}</div>
-      <button class="small" style="background:#673ab7;color:#fff" onclick="navigator.clipboard.writeText('${baseUrl}');this.innerText='Copied ✅'">Copy ViewForm</button>
+      <button class="small" style="background:#673ab7;color:#fff" onclick="copyText('${baseUrl}', this)">Copy</button>
     </div>
-    <h3>✅ মোট ${ids.length} টা Entry ID পাওয়া গেছে</h3>`;
-    ids.forEach((id, i)=>{
+    <h3>✅ মোট ${ids.length} টি প্রশ্ন পাওয়া গেছে</h3>`;
+
+    ids.forEach((item, i) => {
       out += `
       <div class="card">
-        <div class="q">প্রশ্ন ${i+1}</div>
-        <div class="id">${id}</div>
-        <button class="small" onclick="navigator.clipboard.writeText('${id}');this.innerText='Copied ✅'">Copy ID</button>
-        <input class="prefill" id="val-${i}" placeholder="উত্তর লিখো">
-        <button class="small" style="background:#673ab7;color:#fff" onclick="makePrefill('${id}', ${i})">Prefill Link বানাও</button>
+        <div class="q">${item.label}</div>
+        <div class="id">${item.id}</div>
+        <button class="small" onclick="copyText('${item.id}', this)">Copy ID</button>
+        <input class="prefill" id="val-${i}" placeholder="উত্তর লিখো...">
+        <button class="small" style="background:#673ab7;color:#fff" onclick="makePrefill('${item.id}', ${i})">Prefill Link বানাও</button>
         <div id="link-${i}" style="word-break:break-all;margin-top:8px"></div>
       </div>`;
     });
-    out += `<button onclick="makeAllPrefill()">সব উত্তর দিয়ে একসাথে Prefill Link বানাও</button><div id="allLink" style="word-break:break-all;margin-top:10px"></div>`;
+
+    out += `<button onclick="makeAllPrefill()">সব উত্তর দিয়ে একসাথে Prefill Link বানাও</button>
+            <div id="allLink" style="word-break:break-all;margin-top:10px"></div>`;
+            
     result.innerHTML = out;
-  }catch(e){
-    result.innerHTML = "<div class='card'>❌ Error: "+e.message+"<br><br>আবার ট্রাই করো</div>";
+    status.innerText = "সফলভাবে সম্পন্ন!";
+  } catch(e) {
+    result.innerHTML = `<div class='card'>❌ Error: ${e.message}<br><br>Worker লিংক ঠিকমতো বসানো হয়েছে কিনা চেক করো।</div>`;
+    status.innerText = "";
   }
-  loader.style.display='none';
+  loader.style.display = 'none';
 }
+
+function copyText(text, btn){
+  if(navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(text).then(()=>{
+      const old = btn.innerText;
+      btn.innerText = 'Copied ✅';
+      setTimeout(()=>btn.innerText=old, 1500);
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand('copy'); btn.innerText = 'Copied ✅'; }catch(e){}
+    document.body.removeChild(ta);
+  }
+}
+
 function makePrefill(id, i){
-  let val = document.getElementById('val-'+i).value;
-  let link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
-  document.getElementById('link-'+i).innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="navigator.clipboard.writeText('${link}')">Copy Link</button>`;
+  const val = document.getElementById('val-'+i).value;
+  const link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
+  document.getElementById('link-'+i).innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="copyText('${link}', this)">Copy Link</button>`;
 }
+
 function makeAllPrefill(){
-  let params = window._ids.map((id,i)=>{
-    let v = document.getElementById('val-'+i)?.value || "";
+  const params = window._ids.map((id,i)=>{
+    const v = document.getElementById('val-'+i)?.value || "";
     return id + "=" + encodeURIComponent(v);
   }).join('&');
-  let link = window._baseUrl + "?usp=pp_url&" + params;
-  document.getElementById('allLink').innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="navigator.clipboard.writeText('${link}')">Copy Full Link</button>`;
+  const link = window._baseUrl + "?usp=pp_url&" + params;
+  document.getElementById('allLink').innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="copyText('${link}', this)">Copy Full Link</button>`;
 }
 </script>
 </body>
