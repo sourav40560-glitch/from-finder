@@ -67,23 +67,25 @@ async function findIds(){
     const fetchUrl = MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl);
     const res = await fetch(fetchUrl);
     
-    if(!res.ok) throw new Error("Worker response failed. Status: " + res.status);
+    if(!res.ok) throw new Error("Worker response failed.");
     
     const html = await res.text();
     
-    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);?\s*<\/script>/);
+    // শক্তিশালী রেগুলার এক্সপ্রেশন (যা আগের কোডে মিসিং ছিল)
+    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\])\s*<\/script>/);
     let ids = [];
     
     if(dataMatch){
       try {
         const data = JSON.parse(dataMatch[1]);
-        if(data && data[1]) {
-          data[1].forEach(item => {
+        // ডেটা স্ট্রাকচার থেকে প্রশ্ন এবং Entry ID আলাদা করা
+        if(data && data[1] && data[1][1]) {
+          data[1][1].forEach(item => {
             if(item && item[1] && item[4]){
               item[4].forEach(subItem => {
                 if(subItem && subItem[0]) {
-                   let entry = subItem[0];
-                   let label = item[1];
+                   let entry = subItem[0]; // entry.123456
+                   let label = item[1]; // প্রশ্নের নাম
                    ids.push({ id: entry, label: label });
                 }
               });
@@ -93,6 +95,7 @@ async function findIds(){
       } catch(e){ console.log("JSON parse error:", e); }
     }
 
+    // যদি JSON থেকে না পাওয়া যায়, তবে ব্যাকআপ হিসেবে খোঁজা
     if(ids.length === 0){
       let rawIds = [...new Set(html.match(/entry\.\d+/g) || [])];
       rawIds.forEach((id, index) => {
@@ -101,7 +104,7 @@ async function findIds(){
     }
 
     if(ids.length === 0){
-      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করো।</div>";
+      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। লিংকটি আবার চেক করুন।</div>";
       loader.style.display = 'none';
       status.innerText = '';
       return;
@@ -143,27 +146,48 @@ async function findIds(){
     result.innerHTML = out;
     status.innerText = "সফলভাবে সম্পন্ন!";
   } catch(e) {
-    result.innerHTML = `<div class='card'>❌ Error: ${e.message}<br><br>Worker লিংক ঠিকমতো বসানো হয়েছে কিনা চেক করো।</div>`;
+    result.innerHTML = `<div class='card'>❌ Error: ${e.message}</div>`;
     status.innerText = "";
   }
   loader.style.display = 'none';
 }
 
+// কপি ফাংশন
 function copyText(text, btn){
+  const originalText = btn.innerText;
+  
   if(navigator.clipboard && window.isSecureContext){
     navigator.clipboard.writeText(text).then(()=>{
-      const old = btn.innerText;
       btn.innerText = 'Copied ✅';
-      setTimeout(()=>btn.innerText=old, 1500);
-    });
+      setTimeout(()=>btn.innerText=originalText, 2000);
+    }).catch(()=>fallbackCopy(text, btn, originalText));
   } else {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    try{ document.execCommand('copy'); btn.innerText = 'Copied ✅'; }catch(e){}
-    document.body.removeChild(ta);
+    fallbackCopy(text, btn, originalText);
   }
+}
+
+function fallbackCopy(text, btn, originalText) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try{ 
+    const successful = document.execCommand('copy'); 
+    if(successful) {
+      btn.innerText = 'Copied ✅';
+      setTimeout(()=>btn.innerText=originalText, 2000);
+    } else {
+      btn.innerText = 'Failed ❌';
+      setTimeout(()=>btn.innerText=originalText, 2000);
+    }
+  } catch(e) {
+    btn.innerText = 'Failed ❌';
+    setTimeout(()=>btn.innerText=originalText, 2000);
+  }
+  document.body.removeChild(ta);
 }
 
 function makePrefill(id, i){
