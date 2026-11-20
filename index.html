@@ -6,22 +6,28 @@
 <title>Google Form Entry ID Finder</title>
 <style>
     body { font-family: sans-serif; padding: 16px; max-width: 600px; margin: auto; background: #f4f5f9; }
-    h2 { text-align: center; color: #333; }
+    h2 { text-align: center; color: #333; margin-bottom: 5px; }
+    p.sub { text-align: center; color: #666; margin-top: 0; margin-bottom: 20px; }
     .input-box { width: 100%; padding: 14px; border: 1px solid #ccc; border-radius: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 10px; }
     .main-btn { padding: 14px; width: 100%; background: #673ab7; color: #fff; border: 0; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    .main-btn:active { background: #5e35b1; }
     .card { background: #fff; padding: 16px; margin-top: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .title { font-weight: bold; font-size: 16px; color: #444; margin-bottom: 5px; }
     .entry-id { color: #673ab7; font-weight: bold; font-size: 18px; margin: 8px 0; word-break: break-all; }
     .copy-btn { padding: 10px 16px; background: #eee; color: #333; font-size: 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
     .copy-btn:active { background: #ddd; }
+    .prefill-input { width: 100%; padding: 10px; margin-top: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+    .prefill-btn { background: #00bcd4; color: white; margin-top: 5px; }
     #status { text-align: center; margin-top: 15px; color: #666; font-size: 15px; font-weight: bold; }
+    a { color: #673ab7; word-break: break-all; font-size: 14px; display: block; margin-top: 8px; }
 </style>
 </head>
 <body>
 
 <h2>🔍 Form Entry ID Finder</h2>
+<p class="sub">শুধু Form এর লিংক পেস্ট করো</p>
 
-<input type="text" id="url" class="input-box" placeholder="এখানে ফর্মের লিংক দিন..." value="https://docs.google.com/forms/d/e/1FAIpQLSdhhglQpafBPp3Y2XqXnPh1zp-S1t6kqY1RsRdW3hgeUSg3oQ/viewform">
+<input type="text" id="url" class="input-box" placeholder="এখানে ফর্মের লিংক দিন...">
 <button class="main-btn" onclick="findIds()">Entry ID বের করো</button>
 
 <div id="status"></div>
@@ -52,84 +58,75 @@ async function findIds() {
         const response = await fetch(MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl));
         const html = await response.text();
         
-        let foundIds = [];
+        let questions = [];
 
-        // ১. গুগলের লুকানো ডেটা ব্লক (FB_PUBLIC_LOAD_DATA_) খোঁজা
+        // গুগলের লুকানো ডেটা ব্লক খোঁজা
         const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/);
         
         if (dataMatch && dataMatch[1]) {
             try {
                 const parsedData = JSON.parse(dataMatch[1]);
                 
-                // ডেটার ভেতরে গভীরে গিয়ে entry. খোঁজার ফাংশন
-                function deepSearch(obj) {
-                    if (Array.isArray(obj)) {
-                        obj.forEach(deepSearch);
-                    } else if (typeof obj === 'string') {
-                        if (obj.startsWith('entry.')) {
-                            foundIds.push(obj);
+                // গুগলের ডেটা স্ট্রাকচার অনুযায়ী প্রশ্ন এবং ID বের করা
+                if (parsedData && parsedData[1] && parsedData[1][1]) {
+                    parsedData[1][1].forEach(item => {
+                        if (item && item[1] && item[4] && item[4][0] && item[4][0][0]) {
+                            let questionName = item[1];
+                            let entryId = item[4][0][0];
+                            
+                            if (typeof entryId === 'string' && entryId.startsWith('entry.')) {
+                                questions.push({ name: questionName, id: entryId });
+                            }
                         }
-                    } else if (obj !== null && typeof obj === 'object') {
-                        Object.values(obj).forEach(deepSearch);
-                    }
+                    });
                 }
-                
-                deepSearch(parsedData);
             } catch (e) {
-                console.log("JSON পার্স করতে সমস্যা হয়েছে, ব্যাকআপ ব্যবহার করা হচ্ছে।");
+                console.log("JSON পার্স এরর:", e);
             }
         }
 
-        // ২. যদি উপরের পদ্ধতিতে না পাওয়া যায়, তবে সাধারণ রেগুলার এক্সপ্রেশন ব্যবহার
-        if (foundIds.length === 0) {
-            let rawMatches = html.match(/entry\.\d+/g) || [];
-            foundIds = rawMatches;
-        }
-
-        // ডুপ্লিকেট আইডি বাদ দেওয়া
-        foundIds = [...new Set(foundIds)];
-
-        if (foundIds.length === 0) {
-            resultBox.innerHTML = "<div class='card' style='color:red;'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা অথবা লিংকটি সঠিক কিনা চেক করুন।</div>";
+        if (questions.length === 0) {
+            resultBox.innerHTML = "<div class='card' style='color:red;'>❌ Entry ID পাওয়া যায়নি। লিংকটি সঠিক কিনা এবং ফর্মটি পাবলিক কিনা চেক করুন।</div>";
             statusBox.innerText = "";
             return;
         }
 
         // রেজাল্ট দেখানো
         let htmlOutput = "";
+        window._baseUrl = cleanUrl;
         
-        foundIds.forEach((id, index) => {
+        questions.forEach((q, index) => {
             htmlOutput += `
             <div class="card">
-                <div class="title">প্রশ্ন ${index + 1}</div>
-                <div class="entry-id">${id}</div>
-                <button class="copy-btn" onclick="copyToClipboard('${id}', this)">Copy ID</button>
+                <div class="title">${q.name}</div>
+                <div class="entry-id">${q.id}</div>
+                <button class="copy-btn" onclick="copyToClipboard('${q.id}', this)">Copy ID</button>
+                
+                <input type="text" class="prefill-input" id="val-${index}" placeholder="এখানে উত্তর লিখুন...">
+                <button class="copy-btn prefill-btn" onclick="makePrefill('${q.id}', ${index})">Prefill Link বানাও</button>
+                <div id="link-${index}"></div>
             </div>`;
         });
 
         resultBox.innerHTML = htmlOutput;
-        statusBox.innerText = `✅ সফলভাবে ${foundIds.length} টি Entry ID পাওয়া গেছে!`;
+        statusBox.innerText = `✅ সফলভাবে ${questions.length} টি Entry ID পাওয়া গেছে!`;
 
     } catch (error) {
-        resultBox.innerHTML = `<div class='card' style='color:red;'>❌ সমস্যা হয়েছে: ${error.message}</div>`;
+        resultBox.innerHTML = `<div class='card' style='color:red;'>❌ সমস্যা হয়েছে: ${error.message}</div>`;
         statusBox.innerText = "";
     }
 }
 
-// কপি করার ফাংশন
+// কপি ফাংশন
 function copyToClipboard(text, btn) {
     if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(text).then(() => {
             let originalText = btn.innerText;
             btn.innerText = "Copied ✅";
             btn.style.background = "#d4edda";
-            setTimeout(() => {
-                btn.innerText = originalText;
-                btn.style.background = "#eee";
-            }, 2000);
+            setTimeout(() => { btn.innerText = originalText; btn.style.background = "#eee"; }, 2000);
         });
     } else {
-        // পুরনো ব্রাউজারের জন্য ফলব্যাক
         const tempInput = document.createElement("textarea");
         tempInput.value = text;
         document.body.appendChild(tempInput);
@@ -139,6 +136,13 @@ function copyToClipboard(text, btn) {
         btn.innerText = "Copied ✅";
         setTimeout(() => { btn.innerText = "Copy ID"; }, 2000);
     }
+}
+
+// Prefill লিংক বানানোর ফাংশন
+function makePrefill(id, index) {
+    const val = document.getElementById('val-' + index).value;
+    const link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
+    document.getElementById('link-' + index).innerHTML = `<a href="${link}" target="_blank">${link}</a>`;
 }
 </script>
 </body>
