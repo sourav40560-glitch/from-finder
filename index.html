@@ -1,73 +1,144 @@
-আমি <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="bn">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Google Form Entry ID Finder</title>
 <style>
-body{font-family:sans-serif;padding:16px;max-width:650px;margin:auto;background:#f8f8ff}
-h2{text-align:center;}
-input{width:100%;padding:14px;border:1px solid #ccc;border-radius:10px;font-size:15px;margin-bottom:10px;}
-button{padding:14px;width:100%;background:#673ab7;color:#fff;border:0;border-radius:10px;font-size:16px;cursor:pointer;}
-.card{background:#fff;padding:15px;margin-top:15px;border-radius:10px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}
-.id{color:#673ab7;font-weight:bold;font-size:16px;margin:5px 0}
-.small-btn{padding:8px 12px;width:auto;background:#eee;color:#000;font-size:14px;margin-top:5px;}
+    body { font-family: sans-serif; padding: 16px; max-width: 600px; margin: auto; background: #f4f5f9; }
+    h2 { text-align: center; color: #333; }
+    .input-box { width: 100%; padding: 14px; border: 1px solid #ccc; border-radius: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 10px; }
+    .main-btn { padding: 14px; width: 100%; background: #673ab7; color: #fff; border: 0; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
+    .card { background: #fff; padding: 16px; margin-top: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .title { font-weight: bold; font-size: 16px; color: #444; margin-bottom: 5px; }
+    .entry-id { color: #673ab7; font-weight: bold; font-size: 18px; margin: 8px 0; word-break: break-all; }
+    .copy-btn { padding: 10px 16px; background: #eee; color: #333; font-size: 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    .copy-btn:active { background: #ddd; }
+    #status { text-align: center; margin-top: 15px; color: #666; font-size: 15px; font-weight: bold; }
 </style>
 </head>
 <body>
 
 <h2>🔍 Form Entry ID Finder</h2>
 
-<input id="url" placeholder="এখানে ফর্মের লিংক দিন..." value="https://docs.google.com/forms/d/e/1FAIpQLSdhhglQpafBPp3Y2XqXnPh1zp-S1t6kqY1RsRdW3hgeUSg3oQ/viewform">
-<button onclick="findIds()">Entry ID বের করো</button>
+<input type="text" id="url" class="input-box" placeholder="এখানে ফর্মের লিংক দিন..." value="https://docs.google.com/forms/d/e/1FAIpQLSdhhglQpafBPp3Y2XqXnPh1zp-S1t6kqY1RsRdW3hgeUSg3oQ/viewform">
+<button class="main-btn" onclick="findIds()">Entry ID বের করো</button>
 
-<div id="status" style="text-align:center; margin-top:10px; color:#555;"></div>
+<div id="status"></div>
 <div id="result"></div>
 
 <script>
+// আপনার Cloudflare Worker লিংক
 const MY_WORKER_URL = "https://my-form-proxy.rokib40560.workers.dev";
 
-async function findIds(){
-  const formUrl = document.getElementById('url').value.trim();
-  const result = document.getElementById('result');
-  const status = document.getElementById('status');
+async function findIds() {
+    const formUrl = document.getElementById('url').value.trim();
+    const resultBox = document.getElementById('result');
+    const statusBox = document.getElementById('status');
 
-  let cleanUrl = formUrl.split('/viewform')[0].split('/formResponse')[0] + '/viewform';
-  
-  status.innerText = "ডেটা আনা হচ্ছে...";
-  result.innerHTML = '';
-
-  try {
-    const res = await fetch(MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl));
-    const html = await res.text();
-    
-    // সরাসরি HTML থেকে entry. আইডি খোঁজা
-    let ids = html.match(/entry\.\d+/g) || [];
-    ids = [...new Set(ids)]; // ডুপ্লিকেট বাদ দেওয়া
-
-    if(ids.length === 0){
-      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করুন।</div>";
-      status.innerText = "";
-      return;
+    if (!formUrl.includes('http')) {
+        alert('সঠিক লিংক দিন');
+        return;
     }
 
-    let out = "<div class='card'>✅ মোট " + ids.length + " টি Entry ID পাওয়া গেছে:</div>";
+    // লিংক পরিষ্কার করা
+    let cleanUrl = formUrl.split('/viewform')[0].split('/formResponse')[0] + '/viewform';
+    
+    statusBox.innerText = "ডেটা আনা হচ্ছে... ⏳";
+    resultBox.innerHTML = '';
 
-    ids.forEach((id, i) => {
-      out += `
-      <div class="card">
-        <div>প্রশ্ন ${i+1}</div>
-        <div class="id">${id}</div>
-        <button class="small-btn" onclick="navigator.clipboard.writeText('${id}'); this.innerText='Copied!'">Copy ID</button>
-      </div>`;
-    });
+    try {
+        // Cloudflare Worker এর মাধ্যমে HTML আনা হচ্ছে
+        const response = await fetch(MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl));
+        const html = await response.text();
+        
+        let foundIds = [];
 
-    result.innerHTML = out;
-    status.innerText = "সফলভাবে সম্পন্ন!";
-  } catch(e) {
-    result.innerHTML = "<div class='card'>❌ Error: " + e.message + "</div>";
-    status.innerText = "";
-  }
+        // ১. গুগলের লুকানো ডেটা ব্লক (FB_PUBLIC_LOAD_DATA_) খোঁজা
+        const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/);
+        
+        if (dataMatch && dataMatch[1]) {
+            try {
+                const parsedData = JSON.parse(dataMatch[1]);
+                
+                // ডেটার ভেতরে গভীরে গিয়ে entry. খোঁজার ফাংশন
+                function deepSearch(obj) {
+                    if (Array.isArray(obj)) {
+                        obj.forEach(deepSearch);
+                    } else if (typeof obj === 'string') {
+                        if (obj.startsWith('entry.')) {
+                            foundIds.push(obj);
+                        }
+                    } else if (obj !== null && typeof obj === 'object') {
+                        Object.values(obj).forEach(deepSearch);
+                    }
+                }
+                
+                deepSearch(parsedData);
+            } catch (e) {
+                console.log("JSON পার্স করতে সমস্যা হয়েছে, ব্যাকআপ ব্যবহার করা হচ্ছে।");
+            }
+        }
+
+        // ২. যদি উপরের পদ্ধতিতে না পাওয়া যায়, তবে সাধারণ রেগুলার এক্সপ্রেশন ব্যবহার
+        if (foundIds.length === 0) {
+            let rawMatches = html.match(/entry\.\d+/g) || [];
+            foundIds = rawMatches;
+        }
+
+        // ডুপ্লিকেট আইডি বাদ দেওয়া
+        foundIds = [...new Set(foundIds)];
+
+        if (foundIds.length === 0) {
+            resultBox.innerHTML = "<div class='card' style='color:red;'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা অথবা লিংকটি সঠিক কিনা চেক করুন।</div>";
+            statusBox.innerText = "";
+            return;
+        }
+
+        // রেজাল্ট দেখানো
+        let htmlOutput = "";
+        
+        foundIds.forEach((id, index) => {
+            htmlOutput += `
+            <div class="card">
+                <div class="title">প্রশ্ন ${index + 1}</div>
+                <div class="entry-id">${id}</div>
+                <button class="copy-btn" onclick="copyToClipboard('${id}', this)">Copy ID</button>
+            </div>`;
+        });
+
+        resultBox.innerHTML = htmlOutput;
+        statusBox.innerText = `✅ সফলভাবে ${foundIds.length} টি Entry ID পাওয়া গেছে!`;
+
+    } catch (error) {
+        resultBox.innerHTML = `<div class='card' style='color:red;'>❌ সমস্যা হয়েছে: ${error.message}</div>`;
+        statusBox.innerText = "";
+    }
+}
+
+// কপি করার ফাংশন
+function copyToClipboard(text, btn) {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => {
+            let originalText = btn.innerText;
+            btn.innerText = "Copied ✅";
+            btn.style.background = "#d4edda";
+            setTimeout(() => {
+                btn.innerText = originalText;
+                btn.style.background = "#eee";
+            }, 2000);
+        });
+    } else {
+        // পুরনো ব্রাউজারের জন্য ফলব্যাক
+        const tempInput = document.createElement("textarea");
+        tempInput.value = text;
+        document.body.appendChild(tempInput);
+        tempInput.select();
+        document.execCommand("copy");
+        document.body.removeChild(tempInput);
+        btn.innerText = "Copied ✅";
+        setTimeout(() => { btn.innerText = "Copy ID"; }, 2000);
+    }
 }
 </script>
 </body>
