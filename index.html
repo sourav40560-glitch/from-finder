@@ -55,58 +55,45 @@ async function findIds(){
     
     let ids = [];
 
-    // পদ্ধতি ১: JSON ডেটা থেকে খোঁজা (সবচেয়ে নির্ভুল)
-    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);?\s*<\/script>/);
-    if(dataMatch){
+    // নিশ্চিত পদ্ধতি: FB_PUBLIC_LOAD_DATA_ থেকে ডেটা কাটা
+    const match = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/);
+    
+    if(match && match[1]){
       try {
-        const data = JSON.parse(dataMatch[1]);
-        // সম্পূর্ণ ডেটা ট্রি-তে খুঁজে বের করা
-        for (let i = 0; i < data.length; i++) {
-          if (Array.isArray(data[i])) {
-            for (let j = 0; j < data[i].length; j++) {
-              let item = data[i][j];
-              if (Array.isArray(item) && item[4]) {
-                let label = item[1] || "প্রশ্ন";
-                item[4].forEach(sub => {
-                  if (sub[0] && String(sub[0]).includes('entry.')) {
-                    ids.push({ id: sub[0], label: label });
-                  }
-                });
-              }
+        const data = JSON.parse(match[1]);
+        // সম্পূর্ণ ডেটা ট্রি-তে গভীরে গিয়ে খোঁজা
+        function findEntries(obj) {
+            for (let key in obj) {
+                if (typeof obj[key] === 'string' && obj[key].startsWith('entry.')) {
+                    ids.push(obj[key]);
+                } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                    findEntries(obj[key]);
+                }
             }
-          }
         }
-      } catch(e){}
+        findEntries(data);
+      } catch(e){ console.log("JSON Parse Error"); }
     }
 
-    // পদ্ধতি ২: Regex ব্যাকআপ (যদি JSON ফেইল করে)
+    // ব্যাকআপ পদ্ধতি: যদি উপরের পদ্ধতি ফেইল করে, রেগুলার এক্সপ্রেশন দিয়ে খোঁজা
     if(ids.length === 0){
-      let rawIds = [...new Set(html.match(/entry\.\d+/g) || [])];
-      rawIds.forEach((id, index) => {
-        ids.push({ id: id, label: "প্রশ্ন " + (index + 1) });
-      });
+      let rawIds = html.match(/entry\.\d+/g) || [];
+      ids = rawIds;
     }
 
+    // ডুপ্লিকেট রিমুভ করা
+    ids = [...new Set(ids)];
+
     if(ids.length === 0){
-      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। লিংকটি আবার চেক করুন।</div>";
+      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করো।</div>";
       loader.style.display = 'none';
       status.innerText = '';
       return;
     }
 
-    // একই আইডি একাধিকবার আসলে ডুপ্লিকেট রিমুভ করা
-    let uniqueIds = [];
-    let seen = new Set();
-    ids.forEach(item => {
-      if(!seen.has(item.id)) {
-        seen.add(item.id);
-        uniqueIds.push(item);
-      }
-    });
-
     const baseUrl = cleanUrl;
     const formResponseUrl = baseUrl.replace('/viewform', '/formResponse');
-    window._ids = uniqueIds.map(x => x.id);
+    window._ids = ids;
     window._baseUrl = baseUrl;
 
     let out = `
@@ -115,16 +102,16 @@ async function findIds(){
       <div class="id">${formResponseUrl}</div>
       <button class="small" style="background:#673ab7;color:#fff" onclick="copyText('${formResponseUrl}', this)">Copy</button>
     </div>
-    <h3>✅ মোট ${uniqueIds.length} টি প্রশ্ন পাওয়া গেছে</h3>`;
+    <h3>✅ মোট ${ids.length} টি Entry ID পাওয়া গেছে</h3>`;
 
-    uniqueIds.forEach((item, i) => {
+    ids.forEach((id, i) => {
       out += `
       <div class="card">
-        <div class="q">${item.label}</div>
-        <div class="id">${item.id}</div>
-        <button class="small" onclick="copyText('${item.id}', this)">Copy ID</button>
+        <div class="q">Entry ID ${i+1}</div>
+        <div class="id">${id}</div>
+        <button class="small" onclick="copyText('${id}', this)">Copy ID</button>
         <input class="prefill" id="val-${i}" placeholder="উত্তর লিখো...">
-        <button class="small" style="background:#673ab7;color:#fff" onclick="makePrefill('${item.id}', ${i})">Prefill Link বানাও</button>
+        <button class="small" style="background:#673ab7;color:#fff" onclick="makePrefill('${id}', ${i})">Prefill Link বানাও</button>
         <div id="link-${i}" style="word-break:break-all;margin-top:8px"></div>
       </div>`;
     });
