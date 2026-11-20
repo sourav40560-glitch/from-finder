@@ -33,6 +33,7 @@ a{color:#673ab7;text-decoration:none;word-break:break-all}
 <div id="result"></div>
 
 <script>
+// আপনার Cloudflare Worker লিংক
 const MY_WORKER_URL = "https://my-form-proxy.rokib40560.workers.dev";
 
 async function findIds(){
@@ -55,7 +56,7 @@ async function findIds(){
     
     let ids = [];
     
-    // গুগল ফর্মের ডেটা খোঁজার সবচেয়ে নিশ্চিত উপায়
+    // গুগলের ডেটা ব্লক খোঁজার সবচেয়ে নির্ভুল উপায়
     const startStr = 'var FB_PUBLIC_LOAD_DATA_ = ';
     const startIndex = html.indexOf(startStr);
     
@@ -64,11 +65,14 @@ async function findIds(){
       const jsonEnd = html.indexOf(';</script>', jsonStart);
       
       if (jsonEnd !== -1) {
-        const jsonStr = html.substring(jsonStart, jsonEnd);
+        let jsonStr = html.substring(jsonStart, jsonEnd);
+        // ট্রেইলিং কমা থাকলে ঠিক করা
+        jsonStr = jsonStr.replace(/,\s*$/, ''); 
+        
         try {
           const data = JSON.parse(jsonStr);
           
-          // ফাংশন যা গভীরে গিয়ে entry. খুঁজে বের করবে
+          // ডেটা ট্রি-তে গভীরে গিয়ে entry. খোঁজা
           const extract = (obj) => {
             if (Array.isArray(obj)) {
               obj.forEach(extract);
@@ -83,22 +87,22 @@ async function findIds(){
           
           extract(data);
         } catch(e) {
-          console.log("JSON parse error:", e);
+          console.log("JSON Error:", e);
         }
       }
     }
 
-    // যদি উপরের পদ্ধতি ফেইল করে, তবে সোজা HTML থেকে খোঁজা
+    // ব্যাকআপ পদ্ধতি: সরাসরি রেগুলার এক্সপ্রেশন
     if(ids.length === 0){
       let rawIds = html.match(/entry\.\d+/g) || [];
       ids = rawIds;
     }
 
-    // ডুপ্লিকেট আইডি বাদ দেওয়া
+    // ডুপ্লিকেট রিমুভ
     ids = [...new Set(ids)];
 
     if(ids.length === 0){
-      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা অথবা লিংকটি সঠিক কিনা চেক করুন।</div>";
+      result.innerHTML = "<div class='card'>❌ Entry ID পাওয়া যায়নি। ফর্মটি পাবলিক কিনা চেক করুন।</div>";
       loader.style.display = 'none';
       status.innerText = '';
       return;
