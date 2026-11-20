@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Google Form Entry ID Finder</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:sans-serif;padding:16px;max-width:650px;margin:auto;background:#f8f8ff}
+h2{text-align:center;margin-bottom:5px}
+p.sub{text-align:center;color:#555}
+input{width:100%;padding:14px;border:1px solid #ccc;border-radius:10px;font-size:15px}
+button{padding:13px;width:100%;background:#673ab7;color:#fff;border:0;border-radius:10px;font-size:16px;margin-top:10px;cursor:pointer}
+button:active{opacity:.8}
+.card{background:#fff;padding:14px;margin-top:12px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.q{font-weight:bold;font-size:16px}
+.id{color:#673ab7;margin:6px 0;word-break:break-all;font-size:14px}
+.small{padding:8px 12px;width:auto;background:#eee;color:#000;font-size:13px;margin-top:5px}
+.prefill{width:100%;padding:10px;margin-top:10px}
+#loader{display:none;text-align:center;margin-top:15px}
+.footer{text-align:center;color:#888;font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+
+<h2>🔍 Google Form Entry ID Finder</h2>
+<p class="sub">শুধু Form এর লিংক Paste করো, বাকিটা আমি দেখতেছি</p>
+
+<input id="url" placeholder="https://docs.google.com/forms/d/e/.../viewform">
+<button onclick="findIds()">Entry ID বের করো</button>
+<div id="loader">খুঁজতেছি... একটু অপেক্ষা করো ⏳</div>
+<div id="result"></div>
+<div class="footer">Made for easy Form automation</div>
+
+<script>
+async function findIds(){
+  let formUrl = document.getElementById('url').value.trim();
+  let result = document.getElementById('result');
+  let loader = document.getElementById('loader');
+  if(!formUrl.includes('http')){ alert('সঠিক লিংক দাও'); return; }
+  loader.style.display='block';
+  result.innerHTML='';
+
+  try{
+    let proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent(formUrl);
+    let res = await fetch(proxy);
+    let html = await res.text();
+
+    let ids = [...new Set(html.match(/entry\.\d+/g) || [])];
+
+    if(ids.length===0){
+      result.innerHTML = "<div class='card'>❌ পাওয়া যায়নি।<br>1. লিংকটা forms.gle হলে Chrome এ ওপেন করে বড় লিংকটা কপি করে আনো<br>2. Form টা Public আছে কিনা দেখো</div>";
+      loader.style.display='none';
+      return;
+    }
+
+    // Base URL বের করা
+    let baseUrl = formUrl.split('/viewform')[0] + '/viewform';
+    let m = html.match(/https:\/\/docs\.google\.com\/forms\/d\/e\/[^\/"]+\/formResponse/);
+    if(m) baseUrl = m[0].replace('/formResponse','/viewform');
+    let formResponseUrl = baseUrl.replace('/viewform','/formResponse');
+
+    window._ids = ids;
+    window._baseUrl = baseUrl;
+
+    let out = `
+    <div class="card" style="background:#e8e5ff">
+      <div class="q">🔗 FormResponse Link (Auto Submit এর জন্য)</div>
+      <div class="id">${formResponseUrl}</div>
+      <button class="small" style="background:#673ab7;color:#fff" onclick="navigator.clipboard.writeText('${formResponseUrl}');this.innerText='Copied ✅'">Copy FormResponse Link</button>
+    </div>
+    <div class="card" style="background:#e8e5ff">
+      <div class="q">👁️ ViewForm Link</div>
+      <div class="id">${baseUrl}</div>
+      <button class="small" style="background:#673ab7;color:#fff" onclick="navigator.clipboard.writeText('${baseUrl}');this.innerText='Copied ✅'">Copy ViewForm Link</button>
+    </div>
+    <h3>✅ মোট ${ids.length} টা Entry ID পাওয়া গেছে</h3>
+    `;
+
+    ids.forEach((id, i)=>{
+      out += `
+      <div class="card">
+        <div class="q">প্রশ্ন ${i+1}</div>
+        <div class="id">${id}</div>
+        <button class="small" onclick="navigator.clipboard.writeText('${id}');this.innerText='Copied ✅'">Copy ID</button>
+        <input class="prefill" id="val-${i}" placeholder="এই প্রশ্নের জন্য উত্তর লিখো (Prefill এর জন্য)">
+        <button class="small" style="background:#673ab7;color:#fff" onclick="makePrefill('${id}', ${i})">Prefill Link বানাও</button>
+        <div id="link-${i}" style="word-break:break-all;margin-top:8px"></div>
+      </div>`;
+    });
+
+    out += `<button onclick="makeAllPrefill()">সব উত্তর দিয়ে একসাথে Prefill Link বানাও</button><div id="allLink" style="word-break:break-all;margin-top:10px"></div>`;
+
+    result.innerHTML = out;
+
+  }catch(e){
+    result.innerHTML = "Error: "+e;
+  }
+  loader.style.display='none';
+}
+
+function makePrefill(id, i){
+  let val = document.getElementById('val-'+i).value;
+  let link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
+  document.getElementById('link-'+i).innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="navigator.clipboard.writeText('${link}')">Copy Link</button>`;
+}
+
+function makeAllPrefill(){
+  let params = window._ids.map((id,i)=>{
+    let v = document.getElementById('val-'+i)?.value || "";
+    return id + "=" + encodeURIComponent(v);
+  }).join('&');
+  let link = window._baseUrl + "?usp=pp_url&" + params;
+  document.getElementById('allLink').innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="navigator.clipboard.writeText('${link}')">Copy Full Link</button>`;
+}
+</script>
+</body>
+</html>
