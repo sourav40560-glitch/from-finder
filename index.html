@@ -1,149 +1,272 @@
 <!DOCTYPE html>
 <html lang="bn">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Google Form Entry ID Finder</title>
+
 <style>
-    body { font-family: sans-serif; padding: 16px; max-width: 600px; margin: auto; background: #f4f5f9; }
-    h2 { text-align: center; color: #333; margin-bottom: 5px; }
-    p.sub { text-align: center; color: #666; margin-top: 0; margin-bottom: 20px; }
-    .input-box { width: 100%; padding: 14px; border: 1px solid #ccc; border-radius: 10px; font-size: 15px; box-sizing: border-box; margin-bottom: 10px; }
-    .main-btn { padding: 14px; width: 100%; background: #673ab7; color: #fff; border: 0; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; }
-    .main-btn:active { background: #5e35b1; }
-    .card { background: #fff; padding: 16px; margin-top: 15px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .title { font-weight: bold; font-size: 16px; color: #444; margin-bottom: 5px; }
-    .entry-id { color: #673ab7; font-weight: bold; font-size: 18px; margin: 8px 0; word-break: break-all; }
-    .copy-btn { padding: 10px 16px; background: #eee; color: #333; font-size: 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    .copy-btn:active { background: #ddd; }
-    .prefill-input { width: 100%; padding: 10px; margin-top: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
-    .prefill-btn { background: #00bcd4; color: white; margin-top: 5px; }
-    #status { text-align: center; margin-top: 15px; color: #666; font-size: 15px; font-weight: bold; }
-    a { color: #673ab7; word-break: break-all; font-size: 14px; display: block; margin-top: 8px; }
+* { box-sizing: border-box; }
+
+body {
+    font-family: Arial, sans-serif;
+    padding: 16px;
+    max-width: 600px;
+    margin: auto;
+    background: #f4f5f9;
+}
+
+h2 {
+    text-align: center;
+    color: #333;
+}
+
+.sub {
+    text-align: center;
+    color: #777;
+}
+
+.input-box {
+    width: 100%;
+    padding: 14px;
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    font-size: 15px;
+    margin-bottom: 12px;
+}
+
+.main-btn {
+    width: 100%;
+    padding: 14px;
+    background: #673ab7;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+.card {
+    background: white;
+    padding: 16px;
+    margin-top: 15px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px #0001;
+}
+
+.title {
+    font-weight: bold;
+    font-size: 16px;
+    color: #333;
+}
+
+.entry-id {
+    color: #673ab7;
+    font-size: 18px;
+    font-weight: bold;
+    margin: 12px 0;
+    word-break: break-all;
+}
+
+.copy-btn {
+    padding: 10px 16px;
+    background: #eee;
+    border: none;
+    border-radius: 7px;
+    font-weight: bold;
+}
+
+#status {
+    text-align: center;
+    margin-top: 15px;
+    font-weight: bold;
+    overflow-wrap: anywhere;
+}
 </style>
 </head>
+
 <body>
 
 <h2>🔍 Form Entry ID Finder</h2>
-<p class="sub">শুধু Form এর লিংক পেস্ট করো</p>
+<p class="sub">শুধু Google Form এর লিংক দিন</p>
 
-<input type="text" id="url" class="input-box" placeholder="এখানে ফর্মের লিংক দিন...">
-<button class="main-btn" onclick="findIds()">Entry ID বের করো</button>
+<input
+ type="url"
+ id="url"
+ class="input-box"
+ placeholder="Paste Google Form Link Here"
+>
+
+<button class="main-btn" onclick="findIds()">
+Entry ID বের করো
+</button>
 
 <div id="status"></div>
 <div id="result"></div>
 
 <script>
-// আপনার Cloudflare Worker লিংক
-const MY_WORKER_URL = "https://my-form-proxy.rokib40560.workers.dev";
+
+const WORKER_URL =
+"https://my-form-proxy.rokib40560.workers.dev";
+
+// URL থেকে Google Form Link নেওয়া
+const params = new URLSearchParams(window.location.search);
+const sharedUrl = params.get("url");
+
+if (sharedUrl) {
+    document.getElementById("url").value = sharedUrl;
+    window.history.replaceState({}, "", window.location.pathname);
+}
 
 async function findIds() {
-    const formUrl = document.getElementById('url').value.trim();
-    const resultBox = document.getElementById('result');
-    const statusBox = document.getElementById('status');
 
-    if (!formUrl.includes('http')) {
-        alert('সঠিক লিংক দিন');
+    const formUrl = document.getElementById("url").value.trim();
+    const status = document.getElementById("status");
+    const result = document.getElementById("result");
+
+    result.innerHTML = "";
+
+    let parsed;
+
+    try {
+        parsed = new URL(formUrl);
+
+        if (
+            parsed.hostname !== "docs.google.com" ||
+            !parsed.pathname.includes("/forms/")
+        ) throw new Error();
+
+    } catch {
+        status.innerText = "❌ সঠিক Google Form Link দিন";
         return;
     }
 
-    // লিংক পরিষ্কার করা
-    let cleanUrl = formUrl.split('/viewform')[0].split('/formResponse')[0] + '/viewform';
-    
-    statusBox.innerText = "ডেটা আনা হচ্ছে... ⏳";
-    resultBox.innerHTML = '';
+    let baseUrl = formUrl.split("?")[0].replace(/\/+$/, "");
+
+    if (!baseUrl.endsWith("/viewform")) {
+        baseUrl += "/viewform";
+    }
+
+    status.innerText = "⏳ Loading...";
 
     try {
-        // Cloudflare Worker এর মাধ্যমে HTML আনা হচ্ছে
-        const response = await fetch(MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl));
-        const html = await response.text();
-        
-        let questions = [];
 
-        // গুগলের লুকানো ডেটা ব্লক খোঁজা
-        const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/);
-        
-        if (dataMatch && dataMatch[1]) {
-            try {
-                const parsedData = JSON.parse(dataMatch[1]);
-                
-                // গুগলের ডেটা স্ট্রাকচার অনুযায়ী প্রশ্ন এবং ID বের করা
-                if (parsedData && parsedData[1] && parsedData[1][1]) {
-                    parsedData[1][1].forEach(item => {
-                        if (item && item[1] && item[4] && item[4][0] && item[4][0][0]) {
-                            let questionName = item[1];
-                            let entryId = item[4][0][0];
-                            
-                            if (typeof entryId === 'string' && entryId.startsWith('entry.')) {
-                                questions.push({ name: questionName, id: entryId });
-                            }
-                        }
-                    });
+        const response = await fetch(
+            WORKER_URL + "?url=" + encodeURIComponent(baseUrl)
+        );
+
+        if (!response.ok) {
+            throw new Error("Worker Error: " + response.status);
+        }
+
+        const html = await response.text();
+
+        const match = html.match(
+            /FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);/
+        );
+
+        if (!match) {
+            throw new Error("Google Form Data পাওয়া যায়নি");
+        }
+
+        const data = JSON.parse(match[1]);
+        const items = data?.[1]?.[1];
+
+        let questions = [];
+        let seen = new Set();
+
+        function scan(obj) {
+
+            if (!Array.isArray(obj)) return;
+
+            for (const item of obj) {
+
+                if (
+                    Array.isArray(item) &&
+                    typeof item[1] === "string" &&
+                    Array.isArray(item[4]) &&
+                    Array.isArray(item[4][0])
+                ) {
+
+                    const rawId = item[4][0][0];
+                    const id = String(rawId);
+
+                    if (/^\d+$/.test(id) && !seen.has(id)) {
+
+                        seen.add(id);
+
+                        questions.push({
+                            name: item[1],
+                            id: "entry." + id
+                        });
+                    }
                 }
-            } catch (e) {
-                console.log("JSON পার্স এরর:", e);
             }
         }
 
-        if (questions.length === 0) {
-            resultBox.innerHTML = "<div class='card' style='color:red;'>❌ Entry ID পাওয়া যায়নি। লিংকটি সঠিক কিনা এবং ফর্মটি পাবলিক কিনা চেক করুন।</div>";
-            statusBox.innerText = "";
-            return;
+        scan(items);
+
+        if (!questions.length) {
+            throw new Error("Entry ID পাওয়া যায়নি");
         }
 
-        // রেজাল্ট দেখানো
-        let htmlOutput = "";
-        window._baseUrl = cleanUrl;
-        
-        questions.forEach((q, index) => {
-            htmlOutput += `
-            <div class="card">
-                <div class="title">${q.name}</div>
-                <div class="entry-id">${q.id}</div>
-                <button class="copy-btn" onclick="copyToClipboard('${q.id}', this)">Copy ID</button>
-                
-                <input type="text" class="prefill-input" id="val-${index}" placeholder="এখানে উত্তর লিখুন...">
-                <button class="copy-btn prefill-btn" onclick="makePrefill('${q.id}', ${index})">Prefill Link বানাও</button>
-                <div id="link-${index}"></div>
-            </div>`;
+        questions.forEach((q) => {
+
+            const card = document.createElement("div");
+            card.className = "card";
+
+            const title = document.createElement("div");
+            title.className = "title";
+            title.textContent = q.name;
+
+            const id = document.createElement("div");
+            id.className = "entry-id";
+            id.textContent = q.id;
+
+            const button = document.createElement("button");
+            button.className = "copy-btn";
+            button.textContent = "Copy ID";
+
+            button.onclick = () => copyID(q.id, button);
+
+            card.append(title, id, button);
+            result.appendChild(card);
+
         });
 
-        resultBox.innerHTML = htmlOutput;
-        statusBox.innerText = `✅ সফলভাবে ${questions.length} টি Entry ID পাওয়া গেছে!`;
+        status.innerText =
+            "✅ সফলভাবে " + questions.length +
+            " টি Entry ID পাওয়া গেছে!";
 
     } catch (error) {
-        resultBox.innerHTML = `<div class='card' style='color:red;'>❌ সমস্যা হয়েছে: ${error.message}</div>`;
-        statusBox.innerText = "";
+
+        status.innerText = "❌ " + error.message;
+
     }
 }
 
-// কপি ফাংশন
-function copyToClipboard(text, btn) {
-    if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(() => {
-            let originalText = btn.innerText;
-            btn.innerText = "Copied ✅";
-            btn.style.background = "#d4edda";
-            setTimeout(() => { btn.innerText = originalText; btn.style.background = "#eee"; }, 2000);
-        });
-    } else {
-        const tempInput = document.createElement("textarea");
-        tempInput.value = text;
-        document.body.appendChild(tempInput);
-        tempInput.select();
+async function copyID(id, button) {
+
+    try {
+
+        await navigator.clipboard.writeText(id);
+        button.textContent = "Copied ✅";
+
+    } catch {
+
+        const input = document.createElement("textarea");
+        input.value = id;
+        document.body.appendChild(input);
+        input.select();
         document.execCommand("copy");
-        document.body.removeChild(tempInput);
-        btn.innerText = "Copied ✅";
-        setTimeout(() => { btn.innerText = "Copy ID"; }, 2000);
+        input.remove();
+
+        button.textContent = "Copied ✅";
     }
+
 }
 
-// Prefill লিংক বানানোর ফাংশন
-function makePrefill(id, index) {
-    const val = document.getElementById('val-' + index).value;
-    const link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
-    document.getElementById('link-' + index).innerHTML = `<a href="${link}" target="_blank">${link}</a>`;
-}
 </script>
+
 </body>
 </html>
