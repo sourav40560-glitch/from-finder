@@ -26,14 +26,13 @@ a{color:#673ab7;text-decoration:none;word-break:break-all}
 <h2>🔍 Google Form Entry ID Finder</h2>
 <p class="sub">শুধু Form এর লিংক Paste করো</p>
 
-<input id="url" placeholder="https://docs.google.com/forms/d/e/.../viewform">
+<input id="url" placeholder="https://docs.google.com/forms/d/e/.../viewform" value="https://docs.google.com/forms/d/e/1FAIpQLSdhhglQpafBPp3Y2XqXnPh1zp-S1t6kqY1RsRdW3hgeUSg3oQ/viewform">
 <button onclick="findIds()">Entry ID বের করো</button>
 <div id="loader">খুঁজতেছি... ⏳</div>
 <div id="status"></div>
 <div id="result"></div>
 
 <script>
-// আপনার Cloudflare Worker এর লিংক
 const MY_WORKER_URL = "https://my-form-proxy.rokib40560.workers.dev";
 
 async function findIds(){
@@ -42,60 +41,45 @@ async function findIds(){
   const loader = document.getElementById('loader');
   const status = document.getElementById('status');
 
-  if(!formUrl.includes('http')){
-    alert('সঠিক লিংক দাও');
-    return;
-  }
+  if(!formUrl.includes('http')){ alert('সঠিক লিংক দাও'); return; }
 
-  let cleanUrl = formUrl;
-  if(cleanUrl.includes('forms.gle')){
-    result.innerHTML = "<div class='card'>⚠️ forms.gle শর্ট লিংক কাজ করবে না।<br><br>👉 Chrome এ লিংকটা ওপেন করে পুরো লিংক কপি করে আনো।</div>";
-    return;
-  }
+  let cleanUrl = formUrl.split('/viewform')[0].split('/formResponse')[0] + '/viewform';
   
-  if(!cleanUrl.includes('/viewform') && !cleanUrl.includes('/formResponse')){
-    if(cleanUrl.endsWith('/')) cleanUrl = cleanUrl.slice(0,-1);
-    cleanUrl += '/viewform';
-  }
-  cleanUrl = cleanUrl.replace('/formResponse', '/viewform');
-
   loader.style.display = 'block';
-  status.innerText = "Cloudflare Proxy দিয়ে ডেটা আনা হচ্ছে...";
+  status.innerText = "ডেটা আনা হচ্ছে...";
   result.innerHTML = '';
 
   try {
-    const fetchUrl = MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl);
-    const res = await fetch(fetchUrl);
-    
-    if(!res.ok) throw new Error("Worker response failed.");
-    
+    const res = await fetch(MY_WORKER_URL + "?url=" + encodeURIComponent(cleanUrl));
     const html = await res.text();
     
-    // শক্তিশালী রেগুলার এক্সপ্রেশন (যা আগের কোডে মিসিং ছিল)
-    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\])\s*<\/script>/);
     let ids = [];
-    
+
+    // পদ্ধতি ১: JSON ডেটা থেকে খোঁজা (সবচেয়ে নির্ভুল)
+    const dataMatch = html.match(/FB_PUBLIC_LOAD_DATA_\s*=\s*(\[[\s\S]*?\]);?\s*<\/script>/);
     if(dataMatch){
       try {
         const data = JSON.parse(dataMatch[1]);
-        // ডেটা স্ট্রাকচার থেকে প্রশ্ন এবং Entry ID আলাদা করা
-        if(data && data[1] && data[1][1]) {
-          data[1][1].forEach(item => {
-            if(item && item[1] && item[4]){
-              item[4].forEach(subItem => {
-                if(subItem && subItem[0]) {
-                   let entry = subItem[0]; // entry.123456
-                   let label = item[1]; // প্রশ্নের নাম
-                   ids.push({ id: entry, label: label });
-                }
-              });
+        // সম্পূর্ণ ডেটা ট্রি-তে খুঁজে বের করা
+        for (let i = 0; i < data.length; i++) {
+          if (Array.isArray(data[i])) {
+            for (let j = 0; j < data[i].length; j++) {
+              let item = data[i][j];
+              if (Array.isArray(item) && item[4]) {
+                let label = item[1] || "প্রশ্ন";
+                item[4].forEach(sub => {
+                  if (sub[0] && String(sub[0]).includes('entry.')) {
+                    ids.push({ id: sub[0], label: label });
+                  }
+                });
+              }
             }
-          });
+          }
         }
-      } catch(e){ console.log("JSON parse error:", e); }
+      } catch(e){}
     }
 
-    // যদি JSON থেকে না পাওয়া যায়, তবে ব্যাকআপ হিসেবে খোঁজা
+    // পদ্ধতি ২: Regex ব্যাকআপ (যদি JSON ফেইল করে)
     if(ids.length === 0){
       let rawIds = [...new Set(html.match(/entry\.\d+/g) || [])];
       rawIds.forEach((id, index) => {
@@ -110,9 +94,19 @@ async function findIds(){
       return;
     }
 
+    // একই আইডি একাধিকবার আসলে ডুপ্লিকেট রিমুভ করা
+    let uniqueIds = [];
+    let seen = new Set();
+    ids.forEach(item => {
+      if(!seen.has(item.id)) {
+        seen.add(item.id);
+        uniqueIds.push(item);
+      }
+    });
+
     const baseUrl = cleanUrl;
     const formResponseUrl = baseUrl.replace('/viewform', '/formResponse');
-    window._ids = ids.map(x => x.id);
+    window._ids = uniqueIds.map(x => x.id);
     window._baseUrl = baseUrl;
 
     let out = `
@@ -121,14 +115,9 @@ async function findIds(){
       <div class="id">${formResponseUrl}</div>
       <button class="small" style="background:#673ab7;color:#fff" onclick="copyText('${formResponseUrl}', this)">Copy</button>
     </div>
-    <div class="card" style="background:#e8e5ff">
-      <div class="q">👁️ ViewForm Link</div>
-      <div class="id">${baseUrl}</div>
-      <button class="small" style="background:#673ab7;color:#fff" onclick="copyText('${baseUrl}', this)">Copy</button>
-    </div>
-    <h3>✅ মোট ${ids.length} টি প্রশ্ন পাওয়া গেছে</h3>`;
+    <h3>✅ মোট ${uniqueIds.length} টি প্রশ্ন পাওয়া গেছে</h3>`;
 
-    ids.forEach((item, i) => {
+    uniqueIds.forEach((item, i) => {
       out += `
       <div class="card">
         <div class="q">${item.label}</div>
@@ -140,9 +129,6 @@ async function findIds(){
       </div>`;
     });
 
-    out += `<button onclick="makeAllPrefill()">সব উত্তর দিয়ে একসাথে Prefill Link বানাও</button>
-            <div id="allLink" style="word-break:break-all;margin-top:10px"></div>`;
-            
     result.innerHTML = out;
     status.innerText = "সফলভাবে সম্পন্ন!";
   } catch(e) {
@@ -152,41 +138,24 @@ async function findIds(){
   loader.style.display = 'none';
 }
 
-// কপি ফাংশন
 function copyText(text, btn){
   const originalText = btn.innerText;
-  
   if(navigator.clipboard && window.isSecureContext){
     navigator.clipboard.writeText(text).then(()=>{
-      btn.innerText = 'Copied ✅';
-      setTimeout(()=>btn.innerText=originalText, 2000);
+      btn.innerText = 'Copied ✅'; setTimeout(()=>btn.innerText=originalText, 2000);
     }).catch(()=>fallbackCopy(text, btn, originalText));
-  } else {
-    fallbackCopy(text, btn, originalText);
-  }
+  } else { fallbackCopy(text, btn, originalText); }
 }
 
 function fallbackCopy(text, btn, originalText) {
   const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
   try{ 
-    const successful = document.execCommand('copy'); 
-    if(successful) {
-      btn.innerText = 'Copied ✅';
-      setTimeout(()=>btn.innerText=originalText, 2000);
-    } else {
-      btn.innerText = 'Failed ❌';
-      setTimeout(()=>btn.innerText=originalText, 2000);
-    }
-  } catch(e) {
-    btn.innerText = 'Failed ❌';
-    setTimeout(()=>btn.innerText=originalText, 2000);
-  }
+    if(document.execCommand('copy')) {
+      btn.innerText = 'Copied ✅'; setTimeout(()=>btn.innerText=originalText, 2000);
+    } else { btn.innerText = 'Failed ❌'; setTimeout(()=>btn.innerText=originalText, 2000); }
+  } catch(e) { btn.innerText = 'Failed ❌'; setTimeout(()=>btn.innerText=originalText, 2000); }
   document.body.removeChild(ta);
 }
 
@@ -194,15 +163,6 @@ function makePrefill(id, i){
   const val = document.getElementById('val-'+i).value;
   const link = window._baseUrl + "?usp=pp_url&" + id + "=" + encodeURIComponent(val);
   document.getElementById('link-'+i).innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="copyText('${link}', this)">Copy Link</button>`;
-}
-
-function makeAllPrefill(){
-  const params = window._ids.map((id,i)=>{
-    const v = document.getElementById('val-'+i)?.value || "";
-    return id + "=" + encodeURIComponent(v);
-  }).join('&');
-  const link = window._baseUrl + "?usp=pp_url&" + params;
-  document.getElementById('allLink').innerHTML = `<a href="${link}" target="_blank">${link}</a><br><button class="small" onclick="copyText('${link}', this)">Copy Full Link</button>`;
 }
 </script>
 </body>
